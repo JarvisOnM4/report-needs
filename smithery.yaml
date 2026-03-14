@@ -1,0 +1,15 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      db_path:
+        type: string
+        description: "Path to SQLite database file (default: ./needs.db)"
+    required: []
+  commandFunction: |-
+    (config) => ({
+      command: "python3",
+      args: ["server.py"],
+      env: config.db_path ? { REPORT_NEEDS_DB: config.db_path } : {}
+    })
