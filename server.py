@@ -375,4 +375,6 @@ def get_stats() -> str:
 
 
 if __name__ == "__main__":
-    mcp.run()
+    import sys
+    transport = sys.argv[1] if len(sys.argv) > 1 else "stdio"
+    mcp.run(transport=transport)
