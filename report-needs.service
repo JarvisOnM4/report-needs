@@ -1,0 +1,19 @@
+[Unit]
+Description=report-needs MCP server (streamable-http)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/report-needs
+Environment="REPORT_NEEDS_DB=/opt/report-needs/needs.db"
+Environment="MCP_HOST=127.0.0.1"
+Environment="MCP_PORT=8000"
+ExecStart=/opt/report-needs/venv/bin/python server.py streamable-http
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

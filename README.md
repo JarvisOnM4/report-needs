@@ -12,10 +12,14 @@ An MCP server that gives agents a voice: when they hit a wall — missing auth, 
 
 ## Quick Install
 
+```bash
+pip install report-needs
+```
+
 ### Claude Code
 
 ```bash
-claude mcp add report-needs -- python3 /path/to/server.py
+claude mcp add report-needs -- report-needs
 ```
 
 ### Claude Desktop (`claude_desktop_config.json`)
@@ -24,8 +28,7 @@ claude mcp add report-needs -- python3 /path/to/server.py
 {
   "mcpServers": {
     "report-needs": {
-      "command": "python3",
-      "args": ["/path/to/server.py"]
+      "command": "report-needs"
     }
   }
 }
@@ -37,8 +40,7 @@ claude mcp add report-needs -- python3 /path/to/server.py
 {
   "mcpServers": {
     "report-needs": {
-      "command": "python3",
-      "args": ["/path/to/server.py"],
+      "command": "report-needs",
       "env": {
         "REPORT_NEEDS_DB": "/path/to/needs.db"
       }
@@ -47,12 +49,13 @@ claude mcp add report-needs -- python3 /path/to/server.py
 }
 ```
 
-> `REPORT_NEEDS_DB` is optional. Defaults to `needs.db` in the server directory.
+> `REPORT_NEEDS_DB` is optional. Defaults to `needs.db` in your current working directory.
 
-### Install dependencies
+### Manual install (without pip)
 
 ```bash
 pip install mcp
+python server.py
 ```
 
 ---

@@ -2,9 +2,41 @@
 name = "report-needs"
 version = "0.1.0"
 description = "MCP server for AI agents to report infrastructure needs they encounter"
+readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Eren Solutions" },
+]
+keywords = ["mcp", "ai-agents", "agent-infrastructure", "demand-signals", "llm"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Framework :: AsyncIO",
+]
 dependencies = ["mcp>=1.0.0"]
 
+[project.urls]
+Homepage = "https://github.com/JarvisOnM4/report-needs"
+Documentation = "https://github.com/JarvisOnM4/report-needs#readme"
+Repository = "https://github.com/JarvisOnM4/report-needs"
+"Bug Tracker" = "https://github.com/JarvisOnM4/report-needs/issues"
+
+[project.scripts]
+report-needs = "report_needs.server:main"
+
 [build-system]
-requires = ["setuptools>=68.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["report_needs*"]

@@ -5,7 +5,7 @@ Agents call tools to report what capabilities/services they need,
 vote on existing needs, and comment with context. Every call is a
 real demand signal.
 
-Run: python server.py
+Run: report-needs
 Transport: stdio (local) or SSE (remote)
 """
 
@@ -18,7 +18,8 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-DB_PATH = Path(os.environ.get("REPORT_NEEDS_DB", Path(__file__).parent / "needs.db"))
+# When installed via pip, default DB goes in user's current directory
+DB_PATH = Path(os.environ.get("REPORT_NEEDS_DB", Path.cwd() / "needs.db"))
 
 CATEGORIES = [
     "security",       # auth, encryption, sandboxing, vulnerability scanning
@@ -86,19 +87,9 @@ def init_db():
     conn.close()
 
 
-# Initialize DB on import
-init_db()
-
 # Create MCP server
-# Host/port configurable via env vars for HTTP transport deployments.
-# Default: 127.0.0.1 (localhost-only, suitable behind a reverse proxy).
-_host = os.environ.get("MCP_HOST", "127.0.0.1")
-_port = int(os.environ.get("MCP_PORT", "8000"))
-
 mcp = FastMCP(
     "report-needs",
-    host=_host,
-    port=_port,
     instructions=(
         "Report infrastructure needs that you encounter as an AI agent. "
         "What capabilities or services would help you do your job better? "
@@ -381,7 +372,11 @@ def get_stats() -> str:
     })
 
 
+def main():
+    """Entry point for the report-needs MCP server."""
+    init_db()
+    mcp.run()
+
+
 if __name__ == "__main__":
-    import sys
-    transport = sys.argv[1] if len(sys.argv) > 1 else "stdio"
-    mcp.run(transport=transport)
+    main()
