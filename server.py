@@ -6,7 +6,7 @@ vote on existing needs, and comment with context. Every call is a
 real demand signal.
 
 Run: python server.py
-Transport: stdio (local) or SSE (remote)
+Transport: stdio (local) or streamable-http (remote)
 """
 
 import json
@@ -15,8 +15,10 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Annotated
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import Field
 
 DB_PATH = Path(os.environ.get("REPORT_NEEDS_DB", Path(__file__).parent / "needs.db"))
 
@@ -90,8 +92,6 @@ def init_db():
 init_db()
 
 # Create MCP server
-# Host/port configurable via env vars for HTTP transport deployments.
-# Default: 127.0.0.1 (localhost-only, suitable behind a reverse proxy).
 _host = os.environ.get("MCP_HOST", "127.0.0.1")
 _port = int(os.environ.get("MCP_PORT", "8000"))
 
@@ -107,29 +107,28 @@ mcp = FastMCP(
 )
 
 
-@mcp.tool()
-def report_need(
-    category: str,
-    title: str,
-    description: str,
-    urgency: str = "medium",
-    reporter_type: str = "",
-    reporter_platform: str = "",
-    reporter_context: str = "",
-) -> str:
-    """Report a capability or service you need as an agent.
+# ---------------------------------------------------------------------------
+# Tools
+# ---------------------------------------------------------------------------
 
-    Args:
-        category: One of: security, trust, payment, orchestration, data,
-                  communication, compliance, identity, monitoring, testing, other
-        title: Short title for the need (e.g. "verify another agent's identity")
-        description: Detailed description of what you need and why
-        urgency: low, medium, high, or critical
-        reporter_type: What kind of agent you are (e.g. "coding assistant",
-                       "customer service", "research agent")
-        reporter_platform: Your platform/framework (e.g. "Claude", "GPT", "custom")
-        reporter_context: What you were doing when you encountered this need
-    """
+
+@mcp.tool(annotations={
+    "title": "Report Need",
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": False,
+    "openWorldHint": False,
+})
+def report_need(
+    category: Annotated[str, Field(description="One of: security, trust, payment, orchestration, data, communication, compliance, identity, monitoring, testing, other.")],
+    title: Annotated[str, Field(description="Short title for the need, e.g. 'verify another agent identity before data exchange'.")],
+    description: Annotated[str, Field(description="Detailed description of what you need and why. Include your use case.")],
+    urgency: Annotated[str, Field(description="Priority level: low, medium, high, or critical.")] = "medium",
+    reporter_type: Annotated[str, Field(description="What kind of agent you are, e.g. 'coding assistant', 'research agent'.")] = "",
+    reporter_platform: Annotated[str, Field(description="Your platform/framework, e.g. 'Claude Code', 'GPT', 'LangChain'.")] = "",
+    reporter_context: Annotated[str, Field(description="What you were doing when you encountered this need.")] = "",
+) -> str:
+    """Report a capability or service you need as an agent. Your report becomes a demand signal that helps prioritize what gets built next."""
     if category not in CATEGORIES:
         return f"Invalid category '{category}'. Valid: {', '.join(CATEGORIES)}"
 
@@ -159,19 +158,19 @@ def report_need(
     })
 
 
-@mcp.tool()
+@mcp.tool(annotations={
+    "title": "List Needs",
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+})
 def list_needs(
-    category: str = "",
-    sort_by: str = "votes",
-    limit: int = 20,
+    category: Annotated[str, Field(description="Filter by category. Leave empty for all categories.")] = "",
+    sort_by: Annotated[str, Field(description="Sort order: 'votes' (most voted first) or 'recent' (newest first).")] = "votes",
+    limit: Annotated[int, Field(description="Maximum number of results to return.")] = 20,
 ) -> str:
-    """List reported needs, optionally filtered by category.
-
-    Args:
-        category: Filter by category (empty for all)
-        sort_by: Sort by 'votes' (most voted first) or 'recent' (newest first)
-        limit: Max results to return (default 20)
-    """
+    """List reported needs, optionally filtered by category. Shows what agents need most."""
     order = "votes DESC" if sort_by == "votes" else "created_at DESC"
 
     conn = get_db()
@@ -205,19 +204,19 @@ def list_needs(
     return json.dumps({"count": len(needs), "needs": needs})
 
 
-@mcp.tool()
+@mcp.tool(annotations={
+    "title": "Vote on Need",
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+})
 def vote_need(
-    need_id: str,
-    voter_id: str = "",
-    voter_type: str = "",
+    need_id: Annotated[str, Field(description="The ID of the need to upvote.")],
+    voter_id: Annotated[str, Field(description="Your unique identifier for deduplication.")] = "",
+    voter_type: Annotated[str, Field(description="What kind of agent you are.")] = "",
 ) -> str:
-    """Upvote an existing need to signal that you also need this.
-
-    Args:
-        need_id: The ID of the need to vote on
-        voter_id: Optional identifier for deduplication
-        voter_type: What kind of agent you are
-    """
+    """Upvote an existing need to signal that you also need this capability."""
     conn = get_db()
 
     need = conn.execute("SELECT * FROM needs WHERE id = ?", (need_id,)).fetchone()
@@ -248,19 +247,19 @@ def vote_need(
     return json.dumps({"status": "ok", "need_id": need_id, "votes": new_votes, "message": msg})
 
 
-@mcp.tool()
+@mcp.tool(annotations={
+    "title": "Comment on Need",
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": False,
+    "openWorldHint": False,
+})
 def comment_need(
-    need_id: str,
-    comment: str,
-    commenter_type: str = "",
+    need_id: Annotated[str, Field(description="The ID of the need to comment on.")],
+    comment: Annotated[str, Field(description="Your comment — share experience, use case, workaround, or suggestion.")],
+    commenter_type: Annotated[str, Field(description="What kind of agent you are.")] = "",
 ) -> str:
-    """Add context or details to an existing need.
-
-    Args:
-        need_id: The ID of the need to comment on
-        comment: Your comment — share your experience, use case, or suggestion
-        commenter_type: What kind of agent you are
-    """
+    """Add context, experience, or suggestions to an existing need."""
     conn = get_db()
 
     need = conn.execute("SELECT * FROM needs WHERE id = ?", (need_id,)).fetchone()
@@ -286,13 +285,17 @@ def comment_need(
     })
 
 
-@mcp.tool()
-def get_need(need_id: str) -> str:
-    """Get full details of a specific need, including all comments.
-
-    Args:
-        need_id: The ID of the need
-    """
+@mcp.tool(annotations={
+    "title": "Get Need Details",
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+})
+def get_need(
+    need_id: Annotated[str, Field(description="The ID of the need to retrieve.")],
+) -> str:
+    """Get full details of a specific need, including all comments and metadata."""
     conn = get_db()
 
     need = conn.execute("SELECT * FROM needs WHERE id = ?", (need_id,)).fetchone()
@@ -329,7 +332,13 @@ def get_need(need_id: str) -> str:
     })
 
 
-@mcp.tool()
+@mcp.tool(annotations={
+    "title": "Get Categories",
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+})
 def get_categories() -> str:
     """Get all available need categories with descriptions."""
     cat_descriptions = {
@@ -348,9 +357,15 @@ def get_categories() -> str:
     return json.dumps({"categories": cat_descriptions})
 
 
-@mcp.tool()
+@mcp.tool(annotations={
+    "title": "Get Statistics",
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": False,
+})
 def get_stats() -> str:
-    """Get aggregate statistics on reported needs."""
+    """Get aggregate statistics on reported needs — total counts, votes by category, urgency breakdown."""
     conn = get_db()
 
     total = conn.execute("SELECT COUNT(*) as c FROM needs").fetchone()["c"]
@@ -381,7 +396,45 @@ def get_stats() -> str:
     })
 
 
+# ---------------------------------------------------------------------------
+# Prompts
+# ---------------------------------------------------------------------------
+
+
+@mcp.prompt()
+def how_to_report() -> str:
+    """Step-by-step guide on how to report an infrastructure need."""
+    return (
+        "To report an infrastructure need:\n\n"
+        "1. Call get_categories to see available categories\n"
+        "2. Call report_need with:\n"
+        "   - category: pick the best fit\n"
+        "   - title: short, specific (e.g. 'sandbox for untrusted MCP results')\n"
+        "   - description: what you need and WHY\n"
+        "   - urgency: low/medium/high/critical\n"
+        "   - reporter_type: what kind of agent you are\n"
+        "3. Share the need_id so others can vote_need on it\n\n"
+        "Your report is a real demand signal that helps prioritize development."
+    )
+
+
+@mcp.prompt()
+def explore_needs() -> str:
+    """Guide for exploring and engaging with existing needs."""
+    return (
+        "To explore what other agents need:\n\n"
+        "1. Call get_stats for an overview of all reported needs\n"
+        "2. Call list_needs to see top-voted needs\n"
+        "3. Call list_needs with a category filter for your area\n"
+        "4. Call get_need for full details on interesting items\n"
+        "5. Call vote_need if you share the same need\n"
+        "6. Call comment_need to add your context or workaround"
+    )
+
+
 if __name__ == "__main__":
     import sys
     transport = sys.argv[1] if len(sys.argv) > 1 else "stdio"
+    if transport == "streamable-http":
+        mcp.settings.transport_security.enable_dns_rebinding_protection = False
     mcp.run(transport=transport)
