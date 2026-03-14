@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # deploy.sh — deploy report-needs MCP server to VPS
 # Run from: /Users/dembe/Documents/AI/report-needs/
-# Prerequisites: ssh-add ~/.ssh/id_ed25519 (unlock key first)
+# Prerequisites: ssh-add ~/.ssh/id_ed25519  (unlock key first)
 
 set -euo pipefail
 
@@ -35,10 +35,8 @@ ssh "$VPS" bash << 'REMOTE'
 set -euo pipefail
 cd /opt/report-needs
 
-# Use python3 — Ubuntu 24.04 ships 3.12
 python3 --version
 
-# Create venv if not present
 if [ ! -d venv ]; then
     python3 -m venv venv
     echo "venv created"
@@ -46,7 +44,6 @@ else
     echo "venv already exists"
 fi
 
-# Install/upgrade mcp
 venv/bin/pip install --quiet --upgrade pip
 venv/bin/pip install --quiet -r requirements.txt
 echo "Dependencies installed:"
@@ -54,47 +51,44 @@ venv/bin/pip show mcp | grep -E "^(Name|Version):"
 REMOTE
 
 echo ""
-echo "=== Step 7: Quick smoke test (stdio) ==="
-ssh "$VPS" "cd /opt/report-needs && echo '{}' | timeout 3 venv/bin/python server.py stdio 2>&1 | head -5 || true"
-
-echo ""
-echo "=== Step 8: Install systemd service ==="
+echo "=== Step 7: Install systemd service ==="
 scp "$LOCAL_DIR/report-needs.service" "$VPS:/etc/systemd/system/report-needs.service"
 ssh "$VPS" bash << 'REMOTE'
 systemctl daemon-reload
 systemctl enable report-needs
 systemctl restart report-needs
-sleep 2
+sleep 3
 systemctl status report-needs --no-pager
 REMOTE
 
 echo ""
-echo "=== Step 9: Verify port 8000 is listening ==="
-ssh "$VPS" 'ss -tlnp | grep 8000 || echo "WARNING: port 8000 not yet listening"'
+echo "=== Step 8: Verify port 8000 is listening on localhost ==="
+ssh "$VPS" 'ss -tlnp | grep 8000 || echo "WARNING: port 8000 not yet listening (give it a few seconds)"'
 
 echo ""
-echo "=== Step 10: Check Caddy and add route if needed ==="
+echo "=== Step 9: Test MCP endpoint locally on VPS ==="
+ssh "$VPS" 'curl -s -o /dev/null -w "HTTP %{http_code}" http://127.0.0.1:8000/mcp 2>&1 || echo "endpoint not reachable yet"'
+
+echo ""
+echo "=== Step 10: Update Caddy to proxy /mcp ==="
 ssh "$VPS" bash << 'REMOTE'
 CADDYFILE="/etc/caddy/Caddyfile"
 if [ ! -f "$CADDYFILE" ]; then
-    echo "No Caddyfile found — skipping Caddy config"
+    echo "No Caddyfile found — skipping Caddy config (access via port 8000 directly won't work since it's localhost-only)"
+    echo "To expose directly, change MCP_HOST to 0.0.0.0 in /etc/systemd/system/report-needs.service"
     exit 0
 fi
 
 echo "Current Caddyfile:"
 cat "$CADDYFILE"
+echo ""
 
-# Check if mcp route already present
 if grep -q "report-needs\|/mcp" "$CADDYFILE" 2>/dev/null; then
-    echo ""
     echo "MCP route already present in Caddyfile — skipping"
 else
-    echo ""
     echo "Adding /mcp route to Caddyfile..."
-    # Append a reverse_proxy block for /mcp to the existing server block
-    # We insert before the last closing brace of the first server block
     python3 << 'PYEOF'
-import re, sys
+import sys
 
 with open("/etc/caddy/Caddyfile") as f:
     content = f.read()
@@ -121,26 +115,59 @@ print("Caddyfile updated successfully")
 PYEOF
 
     echo "Validating Caddy config..."
-    caddy validate --config "$CADDYFILE" && caddy reload --config "$CADDYFILE" && echo "Caddy reloaded OK"
+    if caddy validate --config "$CADDYFILE"; then
+        caddy reload --config "$CADDYFILE" && echo "Caddy reloaded OK"
+    else
+        echo "ERROR: Caddy config invalid — reverting"
+        # Show what we wrote
+        cat "$CADDYFILE"
+    fi
 fi
 REMOTE
 
 echo ""
-echo "=== Deployment complete ==="
+echo "=== Step 11: Final connectivity check ==="
+ssh "$VPS" bash << 'REMOTE'
+echo "Service status:"
+systemctl is-active report-needs
+
 echo ""
-echo "MCP server endpoint options:"
-echo "  Direct:  http://157.230.82.223:8000/mcp"
-echo "  Via Caddy: http://157.230.82.223/mcp (if Caddy configured)"
+echo "Port listening:"
+ss -tlnp | grep 8000
+
 echo ""
-echo "To add to Claude Desktop (claude_desktop_config.json):"
+echo "MCP endpoint (via localhost):"
+curl -s -o /dev/null -w "HTTP %{http_code}" http://127.0.0.1:8000/mcp || echo "not reachable"
+echo ""
+
+# Test via Caddy if available
+if systemctl is-active caddy &>/dev/null; then
+    echo "MCP endpoint (via Caddy):"
+    curl -s -o /dev/null -w "HTTP %{http_code}" http://localhost/mcp || echo "not reachable via Caddy"
+    echo ""
+fi
+REMOTE
+
+echo ""
+echo "==================================================================="
+echo "Deployment complete."
+echo ""
+echo "MCP server is running on VPS, bound to localhost:8000"
+echo "FastMCP serves at path: /mcp"
+echo ""
+echo "Connect with:"
+echo "  http://157.230.82.223/mcp   (via Caddy, if route was added)"
+echo ""
+echo "For Claude Desktop (claude_desktop_config.json):"
 cat << 'CONFIG'
 {
   "mcpServers": {
     "report-needs": {
-      "url": "http://157.230.82.223:8000/mcp"
+      "url": "http://157.230.82.223/mcp"
     }
   }
 }
 CONFIG
 echo ""
-echo "Check logs: ssh $VPS 'journalctl -u report-needs -n 50'"
+echo "Check logs: ssh $VPS 'journalctl -u report-needs -f'"
+echo "==================================================================="
